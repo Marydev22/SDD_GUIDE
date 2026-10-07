@@ -45,5 +45,7 @@
     "test": "jest"
   },
   "private": true,
-  "jest": "jest-expo"
+  "jest": {
+    "preset": "jest-expo"
+  }
 }

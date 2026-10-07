@@ -1,98 +1,223 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import {
+  appendSubject,
+  formatGrade,
+  validateSubjectForm,
+  type Subject,
+  type SubjectFormErrors,
+} from '../domain/subjects';
+import { loadSubjects, saveSubjects } from '../storage/subjects-storage';
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
+const colors = {
+  background: '#e2e4e9',
+  card: '#FFFFFF',
+  text: '#111111',
+  secondary: '#5a6e82',
+  header: '#001F3F',
+  primary: '#357ca5',
+  border: '#b5bcb8',
+};
+
+export default function HomeScreen() {
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [name, setName] = useState('');
+  const [grade, setGrade] = useState('');
+  const [errors, setErrors] = useState<SubjectFormErrors>({});
+  const [storageError, setStorageError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    loadSubjects()
+      .then((storedSubjects) => {
+        if (mounted) {
+          setSubjects(storedSubjects);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setStorageError('No se pudieron cargar las materias guardadas.');
+        }
+      })
+      .finally(() => {
+        if (mounted) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  async function handleSubmit() {
+    const validationErrors = validateSubjectForm(name, grade, subjects);
+    setErrors(validationErrors);
+    setStorageError(null);
+    if (validationErrors.name || validationErrors.grade || saving) {
+      return;
+    }
+
+    const nextSubjects = appendSubject(subjects, { name, grade });
+    setSaving(true);
+    try {
+      await saveSubjects(nextSubjects);
+      setSubjects(nextSubjects);
+      setName('');
+      setGrade('');
+      setErrors({});
+    } catch {
+      setStorageError('La materia no pudo guardarse. Intenta nuevamente.');
+    } finally {
+      setSaving(false);
+    }
   }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
+
   return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.header}>
+        <View>
+          <TextInput
+            accessibilityLabel="Nombre de la materia"
+            placeholder="Nombre de la materia"
+            placeholderTextColor={colors.secondary}
+            value={name}
+            onChangeText={setName}
+            style={[styles.input, errors.name && styles.inputError]}
+            editable={!saving}
+          />
+          {errors.name && (
+            <TextMessage color={colors.card} testID="name-error">
+              {errors.name}
+            </TextMessage>
+          )}
+        </View>
+        <View>
+          <TextInput
+            accessibilityLabel="Nota del primer bimestre"
+            placeholder="Nota del primer bimestre"
+            placeholderTextColor={colors.secondary}
+            value={grade}
+            onChangeText={setGrade}
+            keyboardType="decimal-pad"
+            style={[styles.input, errors.grade && styles.inputError]}
+            editable={!saving}
+          />
+          {errors.grade && (
+            <TextMessage color={colors.card} testID="grade-error">
+              {errors.grade}
+            </TextMessage>
+          )}
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Registrar materia"
+          onPress={handleSubmit}
+          disabled={saving || loading}
+          style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}>
+          {saving ? (
+            <ActivityIndicator color={colors.card} />
+          ) : (
+            <TextMessage color={colors.card}>Registrar materia</TextMessage>
+          )}
+        </Pressable>
+        {storageError && (
+          <TextMessage color={colors.card} testID="storage-error">
+            {storageError}
+          </TextMessage>
+        )}
+      </View>
+
+      {loading ? (
+        <ActivityIndicator accessibilityLabel="Cargando materias" color={colors.primary} />
+      ) : (
+        <ScrollView contentContainerStyle={styles.list}>
+          {subjects.length === 0 ? (
+            <TextMessage>No hay materias registradas.</TextMessage>
+          ) : (
+            subjects.map((subject) => (
+              <View key={subject.id} style={styles.row}>
+                <TextMessage>{subject.name}</TextMessage>
+                <TextMessage>{formatGrade(subject.firstTermGrade)}</TextMessage>
+              </View>
+            ))
+          )}
+        </ScrollView>
+      )}
+    </SafeAreaView>
   );
 }
 
-export default function HomeScreen() {
+function TextMessage({
+  children,
+  color = colors.text,
+  ...props
+}: { children: React.ReactNode; color?: string; testID?: string }) {
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
-
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
-
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
-
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
+    <Text {...props} style={[styles.message, { color }]}>{children}</Text>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
   safeArea: {
     flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
+    backgroundColor: colors.background,
   },
-  heroSection: {
+  header: {
+    backgroundColor: colors.header,
+    padding: 20,
+    gap: 12,
+  },
+  input: {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: 6,
+    borderWidth: 1,
+    color: colors.text,
+    fontSize: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  inputError: {
+    borderColor: '#d33724',
+  },
+  button: {
     alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 6,
+    minHeight: 44,
     justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
+    paddingHorizontal: 16,
   },
-  title: {
-    textAlign: 'center',
+  buttonPressed: {
+    opacity: 0.8,
   },
-  code: {
-    textTransform: 'uppercase',
+  message: {
+    fontSize: 14,
+    padding: 0,
   },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
+  list: {
+    gap: 10,
+    padding: 16,
+  },
+  row: {
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: 6,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 16,
   },
 });
